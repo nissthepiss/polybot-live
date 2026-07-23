@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Strike Sniper — live</title>
+<meta name="description" content="Live view of a Polymarket 5-minute crypto trading bot." />
+<style>
+  :root{
+    --bg:#000000; --panel:#0a0a0a00; --border:#242424; --border-soft:#1a1a1a;
+    --title:#f2a65a; --orange:#ff9d2e; --green:#7bdc97; --red:#ff8e98;
+    --text:#e7e7e7; --dim:#8a8a8a; --dim2:#b8b8b8; --amber:#d6a76f;
+    --th-bg:#0a0a0a; --zebra:#050505;
+    --pill-up-bg:#3fbf6f; --pill-up-fg:#04210f;
+    --pill-down-bg:#ff6b74; --pill-down-fg:#2a0708;
+    --pill-flat-bg:#6a6a6a; --pill-flat-fg:#0a0a0a;
+    --fs:14px; --gap:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--text);}
+  body{
+    font-family:'JetBrains Mono','Cascadia Code',ui-monospace,'SF Mono',Consolas,
+      'Liberation Mono',Menlo,monospace;
+    font-size:var(--fs); line-height:1.45; padding:14px;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:1400px;margin:0 auto;}
+  a{color:var(--orange);}
+
+  .banner{
+    text-align:center;color:var(--orange);font-weight:700;letter-spacing:.03em;
+    padding:6px 4px 10px;border-bottom:1px solid #a85a16;text-wrap:balance;
+  }
+  .banner .sep{color:#6b451a;padding:0 .4em;}
+  .status{text-align:center;color:var(--green);font-weight:700;padding:8px 4px;text-wrap:balance;}
+  .status.stale{color:var(--red);}
+  .meta{
+    text-align:center;color:var(--dim);font-size:.85em;padding-bottom:10px;
+    display:flex;gap:1.2em;justify-content:center;flex-wrap:wrap;
+  }
+  .meta b{color:var(--dim2);font-weight:400;}
+  .dot{width:.6em;height:.6em;border-radius:50%;display:inline-block;vertical-align:middle;
+    background:var(--green);margin-right:.4em;box-shadow:0 0 6px var(--green);}
+  .dot.stale{background:var(--red);box-shadow:0 0 6px var(--red);}
+
+  .grid{display:flex;flex-direction:column;gap:var(--gap);}
+  .row2{display:grid;grid-template-columns:3fr 2fr;gap:var(--gap);}
+  .row2.even{grid-template-columns:1fr 1fr;}
+  .panel{border:1px solid var(--border);border-radius:6px;padding:8px 10px 10px;min-width:0;background:#000;}
+  .panel h2{
+    margin:0 0 6px;font-size:1em;font-weight:700;color:var(--title);
+    letter-spacing:.04em;text-transform:uppercase;
+  }
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+
+  table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  th{
+    text-align:left;color:var(--title);font-weight:700;background:var(--th-bg);
+    padding:3px 12px 3px 0;position:sticky;top:0;
+  }
+  td{padding:2px 12px 2px 0;color:var(--text);}
+  td.reason{white-space:normal;min-width:16em;}
+  tbody tr:nth-child(even){background:var(--zebra);}
+  th:last-child,td:last-child{padding-right:2px;}
+  .num{text-align:left;}
+  .muted{color:var(--dim);}
+  .up{color:var(--green);} .down{color:var(--red);} .flat{color:var(--dim);}
+  .amber{color:var(--orange);} .amber2{color:var(--amber);}
+  .win{color:var(--green);font-weight:700;} .lose{color:var(--red);font-weight:700;}
+  .open{color:var(--orange);font-weight:700;}
+  .empty{color:var(--dim);padding:6px 0;font-style:normal;}
+
+  /* P&L pill panel */
+  .pnl-pill{display:inline-block;font-weight:700;padding:2px 10px;border-radius:3px;margin-bottom:4px;}
+  .pnl-pill.up{background:var(--pill-up-bg);color:var(--pill-up-fg);}
+  .pnl-pill.down{background:var(--pill-down-bg);color:var(--pill-down-fg);}
+  .pnl-pill.flat{background:var(--pill-flat-bg);color:var(--pill-flat-fg);}
+  .pnl-open{color:var(--dim);margin-left:.6em;}
+  .pnl-lines{display:flex;flex-direction:column;gap:1px;}
+  .pnl-lines .l{color:var(--dim2);}
+  .pnl-lines .l .w{color:var(--green);font-weight:700;}
+  .pnl-lines .l .ll{color:var(--red);font-weight:700;}
+  /* Stylishly centre the session box; make the per-trade stake unmissable. */
+  .pnl-panel{display:flex;flex-direction:column;}
+  .pnl-panel #pnl{flex:1;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;gap:5px;}
+  .pnl-head{display:flex;align-items:center;justify-content:center;gap:.5em;flex-wrap:wrap;}
+  .pnl-panel .pnl-pill{margin-bottom:0;}
+  .pnl-panel .pnl-open{margin-left:0;}
+  .pnl-panel .pnl-lines{align-items:center;}
+  .pnl-lines .stake{color:var(--title);font-weight:700;}
+  /* Asset names in the markets table deep-link to that 5-minute Polymarket market. */
+  a.mlink{color:var(--orange);text-decoration:underline;text-underline-offset:2px;font-weight:700;}
+  a.mlink:hover{color:var(--green);}
+
+  /* Live open-position strip — only visible while a position is open. */
+  .openpos{border:1px solid var(--orange);border-radius:6px;padding:8px 12px;
+    background:#140b02;display:flex;flex-direction:column;gap:6px;}
+  .openpos[hidden]{display:none;}
+  .op-hd{color:var(--orange);font-weight:700;letter-spacing:.04em;font-size:.9em;
+    text-transform:uppercase;}
+  .op-hd .op-live{display:inline-block;width:.55em;height:.55em;border-radius:50%;
+    background:var(--orange);margin-right:.45em;vertical-align:middle;
+    box-shadow:0 0 6px var(--orange);animation:oppulse 1.3s ease-in-out infinite;}
+  @keyframes oppulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+  .op-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:.3em 1.1em;
+    font-variant-numeric:tabular-nums;}
+  .op-asset{font-weight:700;color:var(--title);font-size:1.05em;}
+  .op-row .k{color:var(--dim);font-size:.82em;}
+  .op-eta{margin-left:auto;font-weight:700;color:var(--orange);white-space:nowrap;}
+
+  /* Positions pagination */
+  .pager{display:flex;align-items:center;justify-content:center;gap:.9em;padding:8px 0 2px;}
+  .pager[hidden]{display:none;}
+  .pager button{background:#0a0a0a;color:var(--dim2);border:1px solid var(--border);
+    border-radius:3px;padding:2px 12px;font:inherit;cursor:pointer;}
+  .pager button:hover:not(:disabled){border-color:var(--orange);color:var(--orange);}
+  .pager button:disabled{opacity:.35;cursor:default;}
+  .pg-info{color:var(--dim);font-size:.9em;font-variant-numeric:tabular-nums;}
+  .feed-state.HEALTHY{color:var(--green);font-weight:700;}
+  .feed-state.CONNECTING,.feed-state.SYNCING,.feed-state.STALE{color:var(--orange);font-weight:700;}
+  .feed-state.DISCONNECTED{color:var(--red);font-weight:700;}
+
+  footer{color:var(--dim);text-align:center;font-size:.82em;padding:16px 4px 6px;text-wrap:balance;}
+
+  @media (max-width:820px){
+    :root{--fs:12px;--gap:8px;}
+    body{padding:9px;}
+    .row2,.row2.even{grid-template-columns:1fr;}
+    .banner .sep{padding:0 .25em;}
+  }
+  @media (max-width:420px){ :root{--fs:11px;} }
+
+  #offline{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:#000;z-index:50;padding:1.5em;}
+  #offline.show{display:flex;}
+  .off-box{text-align:center;max-width:30em;}
+  .off-dot{width:14px;height:14px;border-radius:50%;background:var(--red);margin:0 auto 1.1em;
+    box-shadow:0 0 18px var(--red);animation:offpulse 1.5s ease-in-out infinite;}
+  .off-title{color:var(--red);font-weight:700;font-size:1.9em;letter-spacing:.18em;}
+  .off-sub{color:var(--dim2);margin-top:.7em;line-height:1.5;}
+  @keyframes offpulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+  @media (prefers-reduced-motion:reduce){ .dot{box-shadow:none;} .off-dot{animation:none;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="banner" id="banner"></div>
+  <div class="status" id="status">connecting…</div>
+  <div class="meta">
+    <span><span class="dot" id="live-dot"></span><b id="freshness">—</b></span>
+    <span>next update in <b id="next-update">—</b></span>
+    <span>live feed · <b>auto-updating</b></span>
+  </div>
+
+  <div class="grid">
+    <div id="openpos" class="openpos" hidden></div>
+    <div class="row2">
+      <div class="panel"><h2>Feed health — genuine WebSocket inputs</h2>
+        <div class="scroll"><table id="feeds"></table></div></div>
+      <div class="panel pnl-panel"><h2>Session P&amp;L / exposure</h2>
+        <div id="pnl"></div></div>
+    </div>
+    <div class="panel"><h2>Current 5-minute markets / orderbook</h2>
+      <div class="scroll"><table id="markets"></table></div></div>
+    <div class="panel"><h2>Positions / exposure</h2>
+      <div class="scroll"><table id="positions"></table></div>
+      <div id="pos-pager" class="pager" hidden></div></div>
+    <div class="panel"><h2>Timestamped strategy decisions / abstentions</h2>
+      <div class="scroll"><table id="decisions"></table></div></div>
+    <div class="panel"><h2>Fills — causal live asks after configured delay</h2>
+      <div class="scroll"><table id="fills"></table></div></div>
+    <div class="panel"><h2>Orders &amp; no-fills</h2>
+      <div class="scroll"><table id="nofills"></table></div></div>
+  </div>
+  <div id="offline"><div class="off-box">
+    <div class="off-dot"></div>
+    <div class="off-title">BOT OFFLINE</div>
+    <div class="off-sub" id="off-sub">Waiting for the bot to come online…</div>
+  </div></div>
+  <footer>
+    Live · real Hyperliquid / Polymarket / Chainlink market data.
+    Updates ~every <span id="foot-int">15</span>s; countdowns tick live in between.
+  </footer>
+</div>
+
+<script id="initial" type="application/json">
+{"generated_at":"2026-07-23T06:25:10.392307+00:00","generated_epoch_ms":1784787910392,"update_interval_s":15,"latest_data_epoch_ms":1784787933288,"session":{"strategy":"LATE FAVORITE V1","status":"LIVE — streaming 5-minute markets","started_epoch_ms":1784781748920},"pnl":{"realized":"1.40","bankroll":"100.00","equity":"101.40","pct":"+1.40","direction":"up","wins":5,"losses":0,"settled":5,"staked":"25","open_unrealized":"0.00"},"feeds":[{"venue":"Hyperliquid","state":"HEALTHY","detail":"public hyperliquid stream healthy","updated_epoch_ms":1784787933288},{"venue":"Polymarket","state":"HEALTHY","detail":"public polymarket stream healthy","updated_epoch_ms":1784787933288},{"venue":"Chainlink","state":"HEALTHY","detail":"public chainlink stream healthy","updated_epoch_ms":1784787933288}],"markets":[{"asset":"BTC","ends_epoch_ms":1784788200000,"ends_utc":"06:30:00","strike":"65,601.66","chainlink":"65,619.14","hyperliquid":"65,630.50","up":"0.680/0.690","down":"0.310/0.320","observed_epoch_ms":1784787932583},{"asset":"ETH","ends_epoch_ms":1784788200000,"ends_utc":"06:30:00","strike":"1,921.34","chainlink":"1,922.59","hyperliquid":"1,922.95","up":"0.860/0.870","down":"0.130/0.140","observed_epoch_ms":1784787933288},{"asset":"SOL","ends_epoch_ms":1784788200000,"ends_utc":"06:30:00","strike":"77.3499","chainlink":"77.3804","hyperliquid":"77.3765","up":"0.780/0.790","down":"0.210/0.220","observed_epoch_ms":1784787932951},{"asset":"XRP","ends_epoch_ms":1784788200000,"ends_utc":"06:30:00","strike":"1.1333","chainlink":"1.1335","hyperliquid":"1.1336","up":"0.700/0.720","down":"0.280/0.300","observed_epoch_ms":1784787933032}],"decisions":[{"time":"06:19:48","asset":"SOL","decision":"ABSTAIN","kind":"ABSTAIN","prob_label":"p(UP)","prob":"0.970","status":"no qualifying entry"},{"time":"06:19:47","asset":"XRP","decision":"ABSTAIN","kind":"ABSTAIN","prob_label":"p(UP)","prob":"0.945","status":"no qualifying entry"},{"time":"06:19:44","asset":"SOL","decision":"ABSTAIN","kind":"ABSTAIN","prob_label":"p(UP)","prob":"0.970","status":"no qualifying entry"},{"time":"06:04:30","asset":"ETH","decision":"DOWN","kind":"DOWN","prob_label":"p(DOWN)","prob":"0.915","status":"entered — $5 paper"},{"time":"06:19:43","asset":"XRP","decision":"ABSTAIN","kind":"ABSTAIN","prob_label":"p(UP)","prob":"0.908","status":"no qualifying entry"},{"time":"06:19:42","asset":"SOL","decision":"ABSTAIN","kind":"ABSTAIN","prob_label":"p(UP)","prob":"0.965","status":"no qualifying entry"}],"fills":[{"time":"06:19:37","asset":"BTC","side":"UP","live_ask":"0.8800","vwap":"0.8809","slippage":"+0.09¢ (+10bp)","slippage_dir":"down","fee":"0.04169","shares":"5.6761"},{"time":"06:09:30","asset":"SOL","side":"DOWN","live_ask":"0.9700","vwap":"0.9710","slippage":"+0.10¢ (+10bp)","slippage_dir":"down","fee":"0.01016","shares":"5.1495"},{"time":"05:04:36","asset":"SOL","side":"DOWN","live_ask":"0.9300","vwap":"0.9309","slippage":"+0.09¢ (+10bp)","slippage_dir":"down","fee":"0.02417","shares":"5.3710"},{"time":"04:59:31","asset":"SOL","side":"UP","live_ask":"0.9700","vwap":"0.9710","slippage":"+0.10¢ (+10bp)","slippage_dir":"down","fee":"0.01016","shares":"5.1495"},{"time":"04:54:31","asset":"BTC","side":"DOWN","live_ask":"0.9700","vwap":"0.9710","slippage":"+0.10¢ (+10bp)","slippage_dir":"down","fee":"0.01016","shares":"5.1495"}],"no_fills":[{"time":"06:04:30","asset":"ETH","side":"DOWN","ask":"0.920","state":"NO-FILL · causal"}],"positions":[{"asset":"BTC","side":"DOWN","shares":"5.1495","avg_entry":"0.9710","fees":"0.01016","mark":"1.000","cash_exposure":"0.00","pnl":"0.14","pnl_dir":"up","state":"WON"},{"asset":"SOL","side":"UP","shares":"5.1495","avg_entry":"0.9710","fees":"0.01016","mark":"1.000","cash_exposure":"0.00","pnl":"0.14","pnl_dir":"up","state":"WON"},{"asset":"SOL","side":"DOWN","shares":"5.3710","avg_entry":"0.9309","fees":"0.02417","mark":"1.000","cash_exposure":"0.00","pnl":"0.35","pnl_dir":"up","state":"WON"},{"asset":"SOL","side":"DOWN","shares":"5.1495","avg_entry":"0.9710","fees":"0.01016","mark":"1.000","cash_exposure":"0.00","pnl":"0.14","pnl_dir":"up","state":"WON"},{"asset":"BTC","side":"UP","shares":"5.6761","avg_entry":"0.8809","fees":"0.04169","mark":"1.000","cash_exposure":"0.00","pnl":"0.63","pnl_dir":"up","state":"WON"}]}
+</script>
+
+<script>
+(function(){
+  "use strict";
+  var STATE = null, serverOffset = 0, lastFetchWall = Date.now(), LIVE_MODE = false;
+  var RECEIVED_LIVE = false;         // true once a real stream/poll frame arrives (not the embedded sample)
+  var lastGenMs = 0, lastGenChangeWall = Date.now();  // when the source last produced a NEW frame
+  var posPage = 0;                   // current positions-table page (0-indexed)
+  var POS_PER_PAGE = 20;
+  // --- transport ---
+  // Leave ABLY_KEY empty  → near-live snapshot polling (GitHub Pages, zero setup).
+  // Paste an Ably SUBSCRIBE-ONLY key → true real-time WebSocket stream (the "geyser").
+  var ABLY_KEY = "Nl9Jaw.HwTzFA:W7lu8iXkVHwOFZIeLrYUCyT-ZtsPo3cMc8FlzBQeovI";
+  var ABLY_CHANNEL = "polybot-live";
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+  function serverNow(){ return Date.now() + serverOffset; }
+
+  function fmtDur(ms){
+    if(!isFinite(ms) || ms < 0) ms = 0;
+    var s = Math.floor(ms/1000), h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+    var p = function(n){ return (n<10?"0":"")+n; };
+    return p(h)+":"+p(m)+":"+p(ss);
+  }
+  function fmtAge(ms){
+    if(!isFinite(ms) || ms < 0) ms = 0;
+    if(ms < 10000) return Math.round(ms)+" ms";
+    return Math.round(ms/1000)+" s";
+  }
+  function fmtT(ms){ var s = ms/1000; if(s < 0) s = 0; return s.toFixed(1)+"s"; }
+  function fmtAgo(ms){
+    var m = Math.floor(ms/60000);
+    if(m < 1) return "<1m";
+    if(m < 60) return m+"m";
+    var h = Math.floor(m/60);
+    if(h < 24) return h+"h";
+    return Math.floor(h/24)+"d";
+  }
+
+  var SIDE = function(v){ return v === "UP" ? "up" : v === "DOWN" ? "down" : "flat"; };
+
+  function rows(head, body){
+    var h = "<thead><tr>" + head.map(function(c){ return "<th>"+esc(c)+"</th>"; }).join("") + "</tr></thead>";
+    return h + "<tbody>" + body + "</tbody>";
+  }
+  function emptyRow(cols, msg){
+    return "<tr><td colspan='"+cols+"' class='empty'>"+esc(msg)+"</td></tr>";
+  }
+
+  function renderBanner(d){
+    var s = d.session || {};
+    var parts = [
+      "<span id='b-strat'>"+esc(s.strategy || "STRIKE SNIPER")+"</span>",
+      "ACTIVE <span id='active-age'>00:00:00</span>",
+      "LIVE MARKET DATA"
+    ];
+    $("banner").innerHTML = parts.join("<span class='sep'>•</span>");
+    var st = $("status");
+    st.textContent = s.status || "—";
+    st.classList.toggle("stale", /IDLE|OFFLINE/.test(s.status || ""));
+  }
+
+  function renderPnl(d){
+    var p = d.pnl, el = $("pnl");
+    if(!p){ el.innerHTML = "<div class='empty'>No settled trades yet — waiting for the first result.</div>"; return; }
+    var dir = p.direction || "flat";
+    var arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "•";
+    var wr = p.settled > 0 ? Math.round(p.wins/p.settled*100)+"%" : "—";
+    var openN = parseFloat(p.open_unrealized || "0");
+    var openTag = openN !== 0
+      ? "<span class='pnl-open'>"+(openN>0?"+$":"-$")+esc(String(Math.abs(openN).toFixed(2)))+" open</span>"
+      : "";
+    var bankedCls = dir === "up" ? "w" : dir === "down" ? "ll" : "";
+    var bankedTxt = (dir==="up"?"+$":dir==="down"?"-$":"$") + esc(String(p.realized).replace("-",""));
+    // Show trades are a fixed small stake so viewers don't read the bankroll as per-trade risk.
+    var stake = isFinite(+p.stake) ? String(+p.stake) : "5";
+    var bank  = isFinite(+p.bankroll) ? String(+p.bankroll) : "100";
+    el.innerHTML =
+      "<div class='pnl-head'>" +
+        "<div class='pnl-pill "+dir+"'>&nbsp;"+arrow+" $"+esc(p.equity)+"&nbsp;&nbsp;&nbsp;"+esc(p.pct)+"%&nbsp;</div>" +
+        openTag +
+      "</div>" +
+      "<div class='pnl-lines'>" +
+      "<div class='l stake'>$"+esc(stake)+" per trade · $"+esc(bank)+" bankroll</div>" +
+      "<div class='l'><span class='w'>"+p.wins+"W</span> · <span class='ll'>"+p.losses+"L</span> · "+
+        wr+" win · "+p.settled+" settled</div>" +
+      "<div class='l'>$"+esc(p.bankroll)+" → $"+esc(p.equity)+
+        " · <span class='"+bankedCls+"'>banked "+bankedTxt+"</span></div>" +
+      "</div>";
+  }
+
+  function renderFeeds(d){
+    var body = (d.feeds||[]).map(function(f){
+      return "<tr><td>"+esc(f.venue)+"</td>"+
+        "<td><span class='feed-state "+esc(f.state)+"'>"+esc(f.state)+"</span></td>"+
+        "<td class='feed-age' data-age='"+(f.updated_epoch_ms||"")+"'>—</td>"+
+        "<td class='muted'>"+esc(f.detail)+"</td></tr>";
+    }).join("");
+    // Synthetic row: this page's own stream health + tick rate.
+    var interval = d.update_interval_s || 15;
+    var mode = LIVE_MODE ? "streaming" : "polling";
+    body += "<tr><td>Watch page</td>"+
+      "<td><span class='feed-state HEALTHY' id='page-feed-state'>LIVE</span></td>"+
+      "<td class='feed-age' data-age='"+(d.generated_epoch_ms||"")+"'>—</td>"+
+      "<td class='muted'>"+mode+" @ "+interval+"s tick</td></tr>";
+    $("feeds").innerHTML = rows(["Venue","State","Freshness","Detail"], body);
+  }
+
+  function marketLink(m){
+    var ends = +m.ends_epoch_ms;
+    if(!m.asset || !isFinite(ends) || ends <= 0){ return esc(m.asset || "—"); }
+    // 5-minute market slug: <asset>-updown-5m-<window-start-unix>, start = end − 300s.
+    var slug = String(m.asset).toLowerCase() + "-updown-5m-" + (Math.floor(ends/1000) - 300);
+    return "<a class='mlink' href='https://polymarket.com/event/" + slug +
+      "' target='_blank' rel='noopener noreferrer'>" + esc(m.asset) + "</a>";
+  }
+
+  function renderMarkets(d){
+    var body = (d.markets||[]).map(function(m){
+      return "<tr><td>"+marketLink(m)+"</td>"+
+        "<td>"+esc(m.ends_utc)+"</td>"+
+        "<td class='tminus' data-ends='"+m.ends_epoch_ms+"'>—</td>"+
+        "<td>"+esc(m.strike)+"</td><td>"+esc(m.chainlink)+"</td><td>"+esc(m.hyperliquid)+"</td>"+
+        "<td>"+esc(m.up)+"</td><td>"+esc(m.down)+"</td></tr>";
+    }).join("") || emptyRow(8, "No live market window right now.");
+    $("markets").innerHTML = rows(
+      ["Asset","Ends UTC","T−","Strike","Chainlink","Hyperliquid","UP bid/ask","DOWN bid/ask"], body);
+  }
+
+  function renderDecisions(d){
+    var body = (d.decisions||[]).map(function(x){
+      var cls = x.kind === "ABSTAIN" ? "amber" : SIDE(x.kind);
+      return "<tr><td class='muted'>"+esc(x.time)+"</td><td>"+esc(x.asset)+"</td>"+
+        "<td class='"+cls+"'>"+esc(x.decision)+"</td>"+
+        "<td class='muted'>"+esc(x.prob_label)+" "+esc(x.prob)+"</td>"+
+        "<td class='muted reason'>"+esc(x.status)+"</td></tr>";
+    }).join("") || emptyRow(5, "No decisions in the current window yet.");
+    $("decisions").innerHTML = rows(["UTC","Asset","Decision","Probability","Status"], body);
+  }
+
+  function renderFills(d){
+    var body = (d.fills||[]).map(function(f){
+      var slc = f.slippage_dir === "up" ? "up" : f.slippage_dir === "down" ? "amber" : "flat";
+      return "<tr><td class='muted'>"+esc(f.time)+"</td><td>"+esc(f.asset)+"</td>"+
+        "<td class='"+SIDE(f.side)+"'>"+esc(f.side)+"</td>"+
+        "<td>"+esc(f.live_ask)+"</td><td>"+esc(f.vwap)+"</td>"+
+        "<td class='"+slc+"'>"+esc(f.slippage)+"</td>"+
+        "<td class='muted'>$"+esc(f.fee)+"</td><td>"+esc(f.shares)+"</td></tr>";
+    }).join("") || emptyRow(8, "No fills yet.");
+    $("fills").innerHTML = rows(["UTC","Asset","Side","Live ask","VWAP","Slippage","Fee","Shares"], body);
+  }
+
+  function renderNoFills(d){
+    var body = (d.no_fills||[]).map(function(n){
+      return "<tr><td class='muted'>"+esc(n.time)+"</td><td>"+esc(n.asset)+"</td>"+
+        "<td class='"+SIDE(n.side)+"'>"+esc(n.side)+"</td>"+
+        "<td>"+esc(n.ask)+"</td><td class='down'>"+esc(n.state)+"</td></tr>";
+    }).join("") || emptyRow(5, "No missed orders — clean fills.");
+    $("nofills").innerHTML = rows(["UTC","Asset","Side","Ask→cap","State"], body);
+  }
+
+  function pnlText(p){
+    return p.pnl === "—" ? "—"
+      : (p.pnl_dir==="up"?"+$":p.pnl_dir==="down"?"-$":"$") + String(p.pnl).replace("-","");
+  }
+
+  function renderOpenPos(d){
+    var box = $("openpos");
+    var opens = (d.positions||[]).filter(function(p){ return p.state === "OPEN"; });
+    if(!opens.length){ box.hidden = true; box.innerHTML = ""; return; }
+    box.hidden = false;
+    var rowsHtml = opens.map(function(p){
+      var pcls = p.pnl_dir==="up"?"up":p.pnl_dir==="down"?"down":"flat";
+      var eta = p.ends_epoch_ms
+        ? "<span class='tclose' data-ends='"+p.ends_epoch_ms+"'>—</span>"
+        : "<span class='muted'>settling…</span>";
+      return "<div class='op-row'>"+
+        "<span class='op-asset'>"+esc(p.asset)+"</span>"+
+        "<span class='"+SIDE(p.side)+"'>"+esc(p.side)+"</span>"+
+        "<span><span class='k'>entry</span> "+esc(p.avg_entry)+"</span>"+
+        "<span><span class='k'>size</span> "+esc(p.shares)+"</span>"+
+        "<span><span class='k'>exposure</span> $"+esc(p.cash_exposure)+"</span>"+
+        "<span><span class='k'>P&amp;L</span> <span class='"+pcls+"'>"+esc(pnlText(p))+"</span></span>"+
+        "<span class='op-eta'>"+eta+"</span>"+
+      "</div>";
+    }).join("");
+    box.innerHTML = "<div class='op-hd'><span class='op-live'></span>In position · "+
+      opens.length+(opens.length>1?" open trades":" open trade")+"</div>" + rowsHtml;
+  }
+
+  function renderPositions(d){
+    var all = d.positions || [];
+    var total = all.length;
+    var pages = Math.max(1, Math.ceil(total / POS_PER_PAGE));
+    if(posPage > pages - 1) posPage = pages - 1;
+    if(posPage < 0) posPage = 0;
+    var start = posPage * POS_PER_PAGE;
+    var body = all.slice(start, start + POS_PER_PAGE).map(function(p, i){
+      var st = p.state === "WON" ? "win" : p.state === "LOST" ? "lose" : "open";
+      var pcls = p.pnl_dir === "up" ? "up" : p.pnl_dir === "down" ? "down" : "flat";
+      var stateCell;
+      if(p.state === "OPEN"){
+        var cd = p.ends_epoch_ms ? " · <span class='tclose' data-ends='"+p.ends_epoch_ms+"'>—</span>" : "";
+        stateCell = "<td class='open'>OPEN"+cd+"</td>";
+      } else {
+        stateCell = "<td class='"+st+"'>"+esc(p.state)+"</td>";
+      }
+      return "<tr><td class='muted'>"+(start+i+1)+"</td>"+
+        "<td class='muted tago' data-at='"+(p.time_epoch_ms||"")+"'>—</td>"+
+        "<td>"+esc(p.asset)+"</td><td class='"+SIDE(p.side)+"'>"+esc(p.side)+"</td>"+
+        "<td class='"+pcls+"'>"+esc(pnlText(p))+"</td>"+stateCell+
+        "<td>"+esc(p.shares)+"</td><td>"+esc(p.avg_entry)+"</td>"+
+        "<td class='muted'>$"+esc(p.fees)+"</td><td>"+esc(p.mark)+"</td>"+
+        "<td>$"+esc(p.cash_exposure)+"</td></tr>";
+    }).join("") || emptyRow(11, "No positions yet.");
+    $("positions").innerHTML = rows(
+      ["#","Time","Asset","Side","P&L","State","Shares","Avg entry","Fees","Mark","Cash exposure"], body);
+    var pager = $("pos-pager");
+    if(total > POS_PER_PAGE){
+      pager.hidden = false;
+      pager.innerHTML =
+        "<button data-dir='-1'"+(posPage<=0?" disabled":"")+">‹ Prev</button>"+
+        "<span class='pg-info'>Page "+(posPage+1)+" / "+pages+" · "+total+" shown</span>"+
+        "<button data-dir='1'"+(posPage>=pages-1?" disabled":"")+">Next ›</button>";
+    } else {
+      pager.hidden = true; pager.innerHTML = "";
+    }
+  }
+
+  function render(){
+    var d = STATE; if(!d) return;
+    $("foot-int").textContent = d.update_interval_s || 15;
+    renderBanner(d); renderOpenPos(d); renderPnl(d); renderFeeds(d); renderMarkets(d);
+    renderDecisions(d); renderFills(d); renderNoFills(d); renderPositions(d);
+  }
+
+  function tick(){
+    var d = STATE; if(!d) return;
+    var now = serverNow();
+    var started = d.session && d.session.started_epoch_ms;
+    if(started){ var a = $("active-age"); if(a) a.textContent = fmtDur(now - started); }
+    Array.prototype.forEach.call(document.querySelectorAll(".tminus"), function(el){
+      var ends = +el.getAttribute("data-ends"); el.textContent = fmtT(ends - now);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".tclose"), function(el){
+      var ends = +el.getAttribute("data-ends"), rem = (ends - now)/1000;
+      el.textContent = rem > 0 ? ("closes " + Math.ceil(rem) + "s") : "settling…";
+    });
+    // Qualitative freshness instead of a sawtooth millisecond counter: the text
+    // only changes on genuine state transitions, not every animation frame.
+    Array.prototype.forEach.call(document.querySelectorAll(".feed-age"), function(el){
+      var age = +el.getAttribute("data-age");
+      if(!age){ el.textContent = "—"; el.className = "feed-age muted"; return; }
+      var s = (now - age) / 1000;
+      if(s < 6){ el.textContent = "● live"; el.className = "feed-age up"; }
+      else if(s < 30){ el.textContent = Math.round(s)+"s behind"; el.className = "feed-age amber"; }
+      else { el.textContent = "stale · "+fmtAgo(now - age); el.className = "feed-age down"; }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".tago"), function(el){
+      var at = +el.getAttribute("data-at");
+      el.textContent = at ? fmtAgo(now - at) : "—";
+    });
+    // Binary state: OFFLINE until a genuine live frame arrives, and OFFLINE again
+    // the instant the stream goes dark. No stale ghost data — it's either on or off.
+    var interval = (d.update_interval_s || 15) * 1000;
+    var dark = Date.now() - lastGenChangeWall;
+    var stale = dark > Math.max(15000, interval * 3);
+    var offline = !RECEIVED_LIVE || stale;
+    if(LIVE_MODE){
+      $("next-update").textContent = offline ? "—" : "streaming";
+    } else {
+      var remain = Math.max(0, interval - (Date.now() - lastFetchWall));
+      $("next-update").textContent = offline ? "—" : (Math.ceil(remain/1000) + "s");
+    }
+    $("live-dot").classList.toggle("stale", offline);
+    $("freshness").textContent = offline
+      ? (RECEIVED_LIVE ? ("OFFLINE · last live " + fmtAge(dark) + " ago") : "OFFLINE · connecting…")
+      : ("LIVE · fresh " + fmtAge(dark) + " ago");
+    var pfs = $("page-feed-state");
+    if(pfs){
+      pfs.textContent = offline ? "OFFLINE" : "LIVE";
+      pfs.className = "feed-state " + (offline ? "DISCONNECTED" : "HEALTHY");
+    }
+    if(offline){
+      var st = $("status");
+      st.classList.add("stale");
+      st.textContent = "OFFLINE — no live bot connected.";
+    }
+    var off = $("offline");
+    if(off){
+      off.classList.toggle("show", offline);
+      if(offline){
+        $("off-sub").textContent = RECEIVED_LIVE
+          ? ("Last live " + fmtAge(dark) + " ago · waiting to reconnect…")
+          : "Waiting for the bot to come online…";
+      }
+    }
+  }
+
+  function setState(d){
+    if(!d || typeof d !== "object") return;
+    STATE = d;
+    serverOffset = (d.generated_epoch_ms || Date.now()) - Date.now();
+    lastFetchWall = Date.now();
+    // Only a CHANGED generated timestamp counts as a genuinely new frame; a
+    // repeatedly-polled static snapshot must not read as "fresh".
+    if(d.generated_epoch_ms && d.generated_epoch_ms !== lastGenMs){
+      lastGenMs = d.generated_epoch_ms;
+      lastGenChangeWall = Date.now();
+    }
+    render(); tick();
+  }
+
+  function poll(){
+    fetch("snapshot.json?t=" + Date.now(), {cache:"no-store"})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){ RECEIVED_LIVE = true; setState(d); })
+      .catch(function(){ /* keep last good state; staleness handled by tick */ })
+      .then(function(){
+        var interval = (STATE && STATE.update_interval_s ? STATE.update_interval_s : 15) * 1000;
+        setTimeout(poll, interval);
+      });
+  }
+
+  function startLiveStream(){
+    var s = document.createElement("script");
+    s.src = "https://cdn.ably.com/lib/ably.min-2.js";
+    s.onload = function(){
+      try{
+        var ably = new Ably.Realtime({ key: ABLY_KEY, closeOnUnload: true });
+        // A subscribe-only key streams new snapshots; a joiner waits at most one
+        // publish interval (~3s) for its first frame, so no rewind is needed.
+        var ch = ably.channels.get(ABLY_CHANNEL);
+        ch.subscribe("snapshot", function(msg){
+          if(!msg || msg.data == null) return;
+          var d = msg.data;
+          if(typeof d === "string"){ try{ d = JSON.parse(d); }catch(e){ return; } }
+          RECEIVED_LIVE = true;
+          setState(d);
+        });
+        LIVE_MODE = true;
+      }catch(e){ LIVE_MODE = false; poll(); }
+    };
+    s.onerror = function(){ LIVE_MODE = false; poll(); };
+    document.head.appendChild(s);
+  }
+
+  try{ setState(JSON.parse(document.getElementById("initial").textContent)); }catch(e){}
+  // Positions pagination — event delegation survives the pager's re-render.
+  $("pos-pager").addEventListener("click", function(e){
+    var b = e.target.closest("button[data-dir]");
+    if(!b || b.disabled) return;
+    posPage += (+b.getAttribute("data-dir"));
+    if(STATE) renderPositions(STATE);
+  });
+
+  setInterval(tick, 250);
+  if(ABLY_KEY){ startLiveStream(); } else { poll(); }
+})();
+</script>
+</body>
+</html>
