@@ -204,8 +204,15 @@
   // --- transport ---
   // Leave ABLY_KEY empty  → near-live snapshot polling (GitHub Pages, zero setup).
   // Paste an Ably SUBSCRIBE-ONLY key → true real-time WebSocket stream (the "geyser").
-  var ABLY_KEY = "Nl9Jaw.HwTzFA:W7lu8iXkVHwOFZIeLrYUCyT-ZtsPo3cMc8FlzBQeovI";
+  var ABLY_KEY = "Z03JBg.6BzjSQ:B3Zq9W0I0UUjEtQzq0ZSwGQKDdU7khq2BbETYmGaZSc";
   var ABLY_CHANNEL = "polybot-live";
+  // The settled table arrives on its own channel, republished only when a
+  // position settles — the live frame carries just the open positions. Ably
+  // bills per 5KiB on publish AND per delivery, so resending 250 rows every two
+  // seconds was burning ~15M messages/month against a 6M free tier.
+  var ABLY_HISTORY_CHANNEL = ABLY_CHANNEL + "-history";
+  var HISTORY = null;                // settled rows, newest first (null = not yet received)
+  var HISTORY_REV = null, HISTORY_AT = 0;
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
@@ -387,12 +394,26 @@
   // newest-first by wall clock. Keeps rows correct even if a publisher sends them
   // in another order (e.g. history restored after a restart).
   function orderedPositions(d){
-    var all = (d.positions || []).slice();
-    var opens = all.filter(function(p){ return p.state === "OPEN"; });
-    var setl  = all.filter(function(p){ return p.state !== "OPEN"; });
+    // Live frame carries open positions; the history channel carries settled
+    // ones. The embedded sample and the static-poll path still ship both in
+    // d.positions, so split on state rather than assuming which arrived where.
+    var live = (d.positions || []).slice();
+    var opens = live.filter(function(p){ return p.state === "OPEN"; });
+    var setl  = live.filter(function(p){ return p.state !== "OPEN"; });
+    if(HISTORY && HISTORY.length) setl = HISTORY.slice();
     opens.sort(function(a,b){ return (+a.ends_epoch_ms||0) - (+b.ends_epoch_ms||0); });
     setl.sort(function(a,b){ return (+b.time_epoch_ms||0) - (+a.time_epoch_ms||0); });
     return opens.concat(setl);
+  }
+
+  // True while the P&L box says trades have settled but their rows have not
+  // reached us yet — worth saying so rather than showing a bare empty table.
+  // The static-poll transport ships settled rows inside d.positions and never
+  // populates HISTORY, so check what we can actually render, not the source.
+  function historyPending(d){
+    if(HISTORY !== null) return false;
+    if((d && d.positions || []).some(function(p){ return p.state !== "OPEN"; })) return false;
+    return !!(d && d.pnl && +d.pnl.settled > 0);
   }
 
   function renderPositions(d){
@@ -419,7 +440,7 @@
         "<td>"+esc(p.shares)+"</td><td>"+esc(p.avg_entry)+"</td>"+
         "<td class='muted'>$"+esc(p.fees)+"</td><td>"+esc(p.mark)+"</td>"+
         "<td>$"+esc(p.cash_exposure)+"</td></tr>";
-    }).join("") || emptyRow(11, "No positions yet.");
+    }).join("") || emptyRow(11, historyPending(d) ? "Loading position history…" : "No positions yet.");
     $("positions").innerHTML = rows(
       ["#","Time","Asset","Side","P&L","State","Shares","Avg entry","Fees","Mark","Cash exposure"], body);
     var pager = $("pos-pager");
@@ -544,6 +565,14 @@
       });
   }
 
+  // Ably delivers data as an object or a JSON string depending on transport.
+  function unwrap(msg){
+    if(!msg || msg.data == null) return null;
+    var d = msg.data;
+    if(typeof d === "string"){ try{ d = JSON.parse(d); }catch(e){ return null; } }
+    return (d && typeof d === "object") ? d : null;
+  }
+
   function startLiveStream(){
     var s = document.createElement("script");
     s.src = "https://cdn.ably.com/lib/ably.min-2.js";
@@ -554,11 +583,24 @@
         // publish interval (~3s) for its first frame, so no rewind is needed.
         var ch = ably.channels.get(ABLY_CHANNEL);
         ch.subscribe("snapshot", function(msg){
-          if(!msg || msg.data == null) return;
-          var d = msg.data;
-          if(typeof d === "string"){ try{ d = JSON.parse(d); }catch(e){ return; } }
+          var d = unwrap(msg);
+          if(!d) return;
           RECEIVED_LIVE = true;
           setState(d);
+        });
+        // rewind=1 replays the most recent history frame on attach, so a viewer
+        // arriving between settlements still gets the table. The publisher keeps
+        // one inside rewind's ~2-minute window with a slow heartbeat.
+        var hist = ably.channels.get(ABLY_HISTORY_CHANNEL, { params: { rewind: "1" } });
+        hist.subscribe("snapshot", function(msg){
+          var h = unwrap(msg);
+          if(!h || !Array.isArray(h.positions)) return;
+          // Frames can arrive out of order after a reconnect; keep the newest.
+          if(HISTORY !== null && +h.generated_epoch_ms < HISTORY_AT) return;
+          HISTORY = h.positions;
+          HISTORY_REV = h.history_rev || null;
+          HISTORY_AT = +h.generated_epoch_ms || 0;
+          if(STATE) renderPositions(STATE);
         });
         LIVE_MODE = true;
       }catch(e){ LIVE_MODE = false; poll(); }
